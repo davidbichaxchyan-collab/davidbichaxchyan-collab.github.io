@@ -144,13 +144,23 @@ function send() {
   const d = picked();
   if (d <= new Date()) return;
   const value = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-  if (tg) tg.sendData(JSON.stringify({ at: value }));
+  if (tg && params.get("rid") && params.get("b")) {
+    // opened from a button inside a message (🗓): such pages can't sendData, so the time goes back as the bot's
+    // own link, «/start w<reminder>_<YYYYMMDDHHMM>», which the bot reads and deletes
+    tg.openTelegramLink(`https://t.me/${params.get("b")}?start=w${params.get("rid")}_${value.replace(/\D/g, "")}`);
+    setTimeout(() => tg.close(), 300);
+  } else if (tg) tg.sendData(JSON.stringify({ at: value }));
   else ok.textContent = "Ուղարկվեց՝ " + value;  // opened outside Telegram (a test)
 }
 ok.addEventListener("click", send);
 
-// start: the next whole hour
-const start = new Date(); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1);
+// start: ?at=<unix seconds> (the time the bot found) if still ahead, else the next whole hour
+const params = new URLSearchParams(location.search);
+let start = new Date(); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1);
+const given = new Date(Number(params.get("at")) * 1000);
+if (params.get("at") && given > new Date()) {
+  start = given; start.setMinutes(Math.ceil(start.getMinutes() / STEP) * STEP, 0, 0);
+}
 if (tg) {
   document.documentElement.setAttribute("data-tg", "");
   document.body.classList.add("tg");
