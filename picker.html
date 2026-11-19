@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="hy">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Ընտրել ժամը</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #111111);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --accent: var(--tg-theme-button-color, #2481cc);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --band: var(--tg-theme-secondary-bg-color, #f0f0f3);
+    --row: 44px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tg]) { --bg: #1c1c1e; --text: #f2f2f7; --band: #2c2c2e; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 17px -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; user-select: none; }
+  main { padding: 16px; max-width: 420px; margin: 0 auto; }
+  h1 { font-size: 15px; font-weight: 500; color: var(--hint); text-align: center; margin: 4px 0 12px; }
+  .wheels { position: relative; display: flex; gap: 4px; height: calc(var(--row) * 5); }
+  .band { position: absolute; left: 0; right: 0; top: calc(var(--row) * 2); height: var(--row);
+    background: var(--band); border-radius: 10px; pointer-events: none; }
+  .wheel { position: relative; flex: 1; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(transparent, #000 35%, #000 65%, transparent);
+            mask-image: linear-gradient(transparent, #000 35%, #000 65%, transparent); }
+  .wheel.day { flex: 1.6; }
+  .wheel::-webkit-scrollbar { display: none; }
+  .wheel div { height: var(--row); line-height: var(--row); text-align: center; scroll-snap-align: center;
+    font-size: 22px; font-variant-numeric: tabular-nums; color: var(--hint); }
+  .wheel.day div { font-size: 18px; }
+  .wheel div.on { color: var(--text); font-weight: 600; }
+  .wheel .pad { scroll-snap-align: none; }
+  .sep { align-self: center; font-size: 22px; font-weight: 600; z-index: 1; }
+  .quick { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
+  .quick button { border: 0; border-radius: 16px; padding: 8px 14px; font: inherit; font-size: 15px;
+    background: var(--band); color: var(--text); }
+  #ok { display: block; width: 100%; margin-top: 16px; border: 0; border-radius: 12px; padding: 14px;
+    font: inherit; font-weight: 600; background: var(--accent); color: var(--accent-text); }
+  #ok:disabled { opacity: .45; }
+  .tg #ok { display: none; } /* inside Telegram the bottom main button does this */
+</style>
+</head>
+<body>
+<main>
+  <h1>Երբ հիշեցնեմ</h1>
+  <div class="wheels">
+    <div class="band"></div>
+    <div class="wheel day" id="day"></div>
+    <div class="wheel" id="hour"></div>
+    <div class="sep">:</div>
+    <div class="wheel" id="min"></div>
+  </div>
+  <div class="quick">
+    <button data-add="15">+15 ր</button>
+    <button data-add="60">+1 ժ</button>
+    <button data-add="180">+3 ժ</button>
+    <button data-at="19:00">Այսօր 19:00</button>
+    <button data-at="09:00" data-next="1">Վաղը 09:00</button>
+  </div>
+  <button id="ok">OK</button>
+</main>
+<script>
+// The bot's time wheel (email_followups, 11-19). Nothing private here: it only sends back the time picked
+// (local wall clock, "YYYY-MM-DDTHH:MM"), via Telegram.WebApp.sendData. Opened from the bot's bottom keyboard.
+const DAYS = 14, STEP = 5;
+const SHORT = ["Կիր", "Երկ", "Երք", "Չրք", "Հնգ", "Ուրբ", "Շբթ"];  // JS getDay(): Sunday first
+const tg = window.Telegram && Telegram.WebApp && Telegram.WebApp.initData ? Telegram.WebApp : null;
+const pad2 = n => String(n).padStart(2, "0");
+const today = new Date(); today.setHours(0, 0, 0, 0);
+const dayAt = k => { const d = new Date(today); d.setDate(d.getDate() + k); return d; };
+const dayName = k => k === 0 ? "Այսօր" : k === 1 ? "Վաղը" : `${SHORT[dayAt(k).getDay()]} ${dayAt(k).getDate()}`;
+
+function build(el, labels) {
+  el.innerHTML = '<div class="pad"></div><div class="pad"></div>' +
+    labels.map(l => `<div>${l}</div>`).join("") + '<div class="pad"></div><div class="pad"></div>';
+}
+const wheels = {
+  day: { el: document.getElementById("day"), n: DAYS },
+  hour: { el: document.getElementById("hour"), n: 24 },
+  min: { el: document.getElementById("min"), n: 60 / STEP },
+};
+build(wheels.day.el, [...Array(DAYS).keys()].map(dayName));
+build(wheels.hour.el, [...Array(24).keys()].map(pad2));
+build(wheels.min.el, [...Array(60 / STEP).keys()].map(i => pad2(i * STEP)));
+
+const row = () => wheels.hour.el.querySelector("div:not(.pad)").offsetHeight;
+const index = w => Math.max(0, Math.min(w.n - 1, Math.round(w.el.scrollTop / row())));
+function setIndex(w, i, smooth) { w.el.scrollTo({ top: i * row(), behavior: smooth ? "smooth" : "auto" }); }
+
+function picked() {
+  const d = dayAt(index(wheels.day));
+  d.setHours(index(wheels.hour), index(wheels.min) * STEP, 0, 0);
+  return d;
+}
+function show(date, smooth) {
+  const k = Math.round((new Date(date).setHours(0, 0, 0, 0) - today) / 86400000);
+  setIndex(wheels.day, Math.max(0, Math.min(DAYS - 1, k)), smooth);
+  setIndex(wheels.hour, date.getHours(), smooth);
+  setIndex(wheels.min, Math.floor(date.getMinutes() / STEP), smooth);
+}
+
+const ok = document.getElementById("ok");
+function refresh() {
+  for (const w of Object.values(wheels)) {
+    const i = index(w);
+    [...w.el.querySelectorAll("div:not(.pad)")].forEach((c, j) => c.classList.toggle("on", j === i));
+    if (w.last !== undefined && w.last !== i && tg) tg.HapticFeedback.selectionChanged();
+    w.last = i;
+  }
+  const d = picked(), past = d <= new Date();
+  const k = index(wheels.day);
+  const label = past ? "⌛ Անցել է" : `✅ ${dayName(k)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  ok.textContent = label; ok.disabled = past;
+  if (tg) {
+    tg.MainButton.setText(label);
+    past ? tg.MainButton.disable() : tg.MainButton.enable();
+  }
+}
+for (const w of Object.values(wheels)) {
+  w.el.addEventListener("scroll", refresh, { passive: true });
+  w.el.addEventListener("click", e => {  // tap a row: it comes to the middle
+    const cells = [...w.el.querySelectorAll("div:not(.pad)")], i = cells.indexOf(e.target);
+    if (i >= 0) setIndex(w, i, true);
+  });
+}
+document.querySelectorAll(".quick button").forEach(b => b.addEventListener("click", () => {
+  let d;
+  if (b.dataset.add) { d = new Date(Date.now() + b.dataset.add * 60000); d.setSeconds(0, 0); }
+  else {
+    const [h, m] = b.dataset.at.split(":").map(Number);
+    d = dayAt(b.dataset.next ? 1 : 0); d.setHours(h, m, 0, 0);
+  }
+  d.setMinutes(Math.ceil(d.getMinutes() / STEP) * STEP);  // the wheel goes by STEP minutes
+  show(d, true);
+}));
+
+function send() {
+  const d = picked();
+  if (d <= new Date()) return;
+  const value = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  if (tg) tg.sendData(JSON.stringify({ at: value }));
+  else ok.textContent = "Ուղարկվեց՝ " + value;  // opened outside Telegram (a test)
+}
+ok.addEventListener("click", send);
+
+// start: the next whole hour
+const start = new Date(); start.setMinutes(0, 0, 0); start.setHours(start.getHours() + 1);
+if (tg) {
+  document.documentElement.setAttribute("data-tg", "");
+  document.body.classList.add("tg");
+  tg.ready(); tg.expand();
+  tg.MainButton.onClick(send); tg.MainButton.show();
+}
+requestAnimationFrame(() => { show(start, false); refresh(); });
+</script>
+</body>
+</html>
